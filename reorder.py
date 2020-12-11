@@ -41,38 +41,42 @@ def get_columns(sql_text: str, schema: str, table: str) -> Tuple[List[str], List
 
 
 def get_migration_sql(
-    sql_text: str, schema: str, table: str, columns: List[str], extras: List[str]
+    sql_text: str, database: str, schema: str, table: str, columns: List[str], extras: List[str], use_input_file: bool
 ) -> str:
     """Get SQL command to migrate a source table into the target table"""
-    sql_text = get_dump_sql(database, schema, table)
     table_re = re.compile(
         fr"(?P<pre>(?:\n|.)+)(?P<table>CREATE TABLE {schema}\.{table}\s+\(\n(?:\n|.)+?\);)(?P<post>(?:\n|.)+)"
     )
     match = table_re.search(sql_text)
 
-    fk_disable = "\n".join(
-        [
-            cleandoc(
-                f"""
-            ALTER TABLE {fk['schema']}.{fk['local_table']}
-            DROP CONSTRAINT {fk['constraint']};
-        """
-            )
-            for fk in get_foreign_keys(database, schema, table)
-        ]
-    )
-    fk_enable = "\n".join(
-        [
-            cleandoc(
-                f"""
-            ALTER TABLE {fk['schema']}.{fk['local_table']}
-            ADD CONSTRAINT {fk['constraint']} FOREIGN KEY ({fk['local_column']})
-            REFERENCES {fk['schema']}.{fk['foreign_table']} ({fk['foreign_column']});
-        """
-            )
-            for fk in get_foreign_keys(database, schema, table)
-        ]
-    )
+    if use_input_file:
+        fk_disable = "\n".join(
+            [
+                cleandoc(
+                    f"""
+                ALTER TABLE {fk['schema']}.{fk['local_table']}
+                DROP CONSTRAINT {fk['constraint']};
+            """
+                )
+                for fk in get_foreign_keys(database, schema, table)
+            ]
+        )
+        fk_enable = "\n".join(
+            [
+                cleandoc(
+                    f"""
+                ALTER TABLE {fk['schema']}.{fk['local_table']}
+                ADD CONSTRAINT {fk['constraint']} FOREIGN KEY ({fk['local_column']})
+                REFERENCES {fk['schema']}.{fk['foreign_table']} ({fk['foreign_column']});
+            """
+                )
+                for fk in get_foreign_keys(database, schema, table)
+            ]
+        )
+    else:
+        fk_disable = "-- NO FK MANAGEMENT WHEN READING FROM FILE --"
+        fk_enable = "-- NO FK MANAGEMENT WHEN READING FROM FILE --"
+
     extra_features = "\n".join(
         [
             f"ALTER TABLE {schema}.{table} ADD {row};"
@@ -200,8 +204,9 @@ def main(
     "... col1 col2 col3" all three columns will be placed at the end of the table.
     """
 
-    sql_text = get_dump_sql(database, schema, table) if input_file is None else input_file.read()
-    cols, extras = get_columns(schema, table, sql_text)
+    use_input_file = input_file is None
+    sql_text = get_dump_sql(database, schema, table) if use_input_file else input_file.read()
+    cols, extras = get_columns(sql_text, schema, table)
 
     if len(columns):
         target_start, target_end = sort_input_columns(list(columns))
@@ -213,7 +218,7 @@ def main(
         )
 
         if migrate:
-            query = get_migration_sql(database, schema, table, cols, extras)
+            query = get_migration_sql(sql_text, database, schema, table, cols, extras, use_input_file=use_input_file)
 
             if output_file is not None:
                 output_file.write(query)
