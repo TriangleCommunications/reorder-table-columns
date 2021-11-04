@@ -14,9 +14,11 @@ and the last column will be placed at the end of the table. When entered as
 -e, --exclude TEXT   Exclude a column (can be used multiple times).
 -d, --database TEXT  The name of the database.
 -n, --schema TEXT    The schema of the target table.
+-u, --user TEXT      User name.
+-p, --password TEXT  Password.
 -m, --migrate        Output full migration sql.
 -f, --file FILENAME  Write output into a file.
--h, --help           Show this message and exit
+-h, --help           Show this message and exit.
 ```
 
 ### Usage
@@ -45,4 +47,5 @@ To run the sql, you can copy and paste it into a query, pipe it directly into th
 
 ### Notes
 
-Scripts is designed to run on the same host as the database and use the `postgres` user.
+Script is designed to run on the same host as the database.  
+Special thanks to JiCiT for [adding windows support and username/password options](https://github.com/TriangleCommunications/reorder-table-columns/pull/3)
