@@ -273,7 +273,6 @@ WHERE
     AND c.relname = '{table}'
     AND x.indisprimary = FALSE
     """
-    print(query)
     with psycopg2.connect(database=database, user=user, password=password) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as curs:
             curs.execute(
