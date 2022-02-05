@@ -112,6 +112,14 @@ def get_migration_sql(
             for row in extras
         ]
     )
+    indexes = "\n".join(
+        [
+            cleandoc(
+                ix['index_def']
+            )
+            for ix in get_indexes(database, schema, table, columns, user, password)
+        ]
+    )
 
     cols = [row.split()[0] for row in columns]
     return cleandoc(
@@ -146,9 +154,11 @@ ALTER TABLE {schema}.{table}_migration RENAME TO {table};
 
 -- Add foreign keys back
 {fk_enable}
+
+-- Add indexes back
+{indexes}
         """
     )
-
 
 def get_foreign_keys(database: str, schema: str, table: str, user: str, password: str) -> List[dict]:
     """Get foreign keys referencing a given table"""
@@ -192,6 +202,84 @@ def get_not_null_columns(database: str, schema: str, table: str, columns: List[s
             )
             return [dict(row) for row in curs.fetchall()]
 
+def get_indexes(database: str, schema: str, table: str, columns: List[str], user: str, password: str) -> List[dict]:
+    cols = [row.split()[0] for row in columns]
+    """Get indeexs for a given table"""
+    query = f"""
+WITH
+      index_column_indexes AS (
+        SELECT
+              x.indexrelid
+            , generate_series(1, x.indnatts) AS attribute_index
+        FROM
+            pg_catalog.pg_index x
+            JOIN pg_catalog.pg_class c
+                ON c.oid = x.indrelid
+            JOIN pg_catalog.pg_class i
+                ON i.oid = x.indexrelid
+            JOIN pg_catalog.pg_namespace n
+                ON n.oid = c.relnamespace
+        WHERE
+                (c.relkind = ANY (ARRAY['r'::"char", 'm'::"char", 'p'::"char"]))
+            AND (i.relkind = ANY (ARRAY['i'::"char", 'I'::"char"]))
+            AND n.nspname = '{schema}'
+            AND c.relname = '{table}'
+            AND x.indisprimary = FALSE
+      )
+    , index_column_names AS (
+        SELECT
+              x.indexrelid
+            , array_agg(pg_get_indexdef(i.oid, ici.attribute_index, false)) AS column_names
+        FROM
+            pg_catalog.pg_index x
+            JOIN pg_catalog.pg_class c
+                ON c.oid = x.indrelid
+            JOIN pg_catalog.pg_class i
+                ON i.oid = x.indexrelid
+            JOIN pg_catalog.pg_namespace n
+                ON n.oid = c.relnamespace
+            INNER JOIN index_column_indexes ici
+                ON ici.indexrelid = x.indexrelid
+        WHERE
+                (c.relkind = ANY (ARRAY['r'::"char", 'm'::"char", 'p'::"char"]))
+            AND (i.relkind = ANY (ARRAY['i'::"char", 'I'::"char"]))
+            AND n.nspname = '{schema}'
+            AND c.relname = '{table}'
+            AND x.indisprimary = FALSE
+        GROUP BY
+            x.indexrelid
+      )
+SELECT
+      n.nspname AS schema_name
+    , c.relname AS table_name
+    , i.relname AS index_name
+    , pg_get_indexdef(i.oid) AS index_def
+FROM
+    pg_catalog.pg_index x
+JOIN pg_catalog.pg_class c
+    ON c.oid = x.indrelid
+JOIN pg_catalog.pg_class i
+    ON i.oid = x.indexrelid
+JOIN pg_catalog.pg_namespace n
+    ON n.oid = c.relnamespace
+INNER JOIN index_column_names icn
+    ON  icn.indexrelid = x.indexrelid
+    AND ARRAY['{"','".join(cols)}'] @> icn.column_names
+WHERE
+        (c.relkind = ANY (ARRAY['r'::"char", 'm'::"char", 'p'::"char"]))
+    AND (i.relkind = ANY (ARRAY['i'::"char", 'I'::"char"]))
+    AND n.nspname = '{schema}'
+    AND c.relname = '{table}'
+    AND x.indisprimary = FALSE
+    """
+    print(query)
+    with psycopg2.connect(database=database, user=user, password=password) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as curs:
+            curs.execute(
+                query,
+                (),
+            )
+            return [dict(row) for row in curs.fetchall()]
 
 def sort_input_columns(
     columns: List[str]
