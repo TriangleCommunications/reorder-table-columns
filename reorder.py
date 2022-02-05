@@ -72,6 +72,17 @@ def get_migration_sql(
     )
     match = table_re.search(sql_text)
 
+    not_nulls = "\n".join(
+        [
+            cleandoc(
+                f"""
+            ALTER TABLE {schema}.{table}_migration
+            ALTER {nn['column_name']} SET NOT NULL;
+        """
+            )
+            for nn in get_not_null_columns(database, schema, table, columns, user, password)
+        ]
+    )
     fk_disable = "\n".join(
         [
             cleandoc(
@@ -110,14 +121,29 @@ def get_migration_sql(
 CREATE TABLE {schema}.{table}_migration AS
 SELECT {', '.join(cols)}
 FROM {schema}.{table};
--- Disable foreign keys and drop old table
+
+-- Add NOT NULL constraints to new table
+{not_nulls}
+
+/*
+ * WARNING: Removing foreign keys from old table
+ */
+-- Disable foreign keys on the old table
 {fk_disable}
+
+/*
+ * WARNING: Droppping the old table
+ */
+-- Drop the old table
 DROP TABLE {schema}.{table};
+
 -- Rename new table
 ALTER TABLE {schema}.{table}_migration RENAME TO {table};
+
 -- Add extra features (constraints) back
 {extra_features}
 {match.group("post")}
+
 -- Add foreign keys back
 {fk_enable}
         """
@@ -144,6 +170,25 @@ def get_foreign_keys(database: str, schema: str, table: str, user: str, password
                 AND ccu.table_name = %s
             """,
                 (table,),
+            )
+            return [dict(row) for row in curs.fetchall()]
+
+def get_not_null_columns(database: str, schema: str, table: str, columns: List[str], user: str, password: str) -> List[dict]:
+    cols = [row.split()[0] for row in columns]
+    """Get foreign keys referencing a given table"""
+    with psycopg2.connect(database=database, user=user, password=password) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as curs:
+            curs.execute(
+                f"""
+                SELECT
+                    c.column_name
+                FROM information_schema.columns c
+                WHERE c.table_schema = '{schema}'
+                AND c.table_name = '{table}'
+                AND c.column_name IN ('{"','".join(cols)}')
+                AND c.is_nullable = 'NO'
+            """,
+                (),
             )
             return [dict(row) for row in curs.fetchall()]
 
