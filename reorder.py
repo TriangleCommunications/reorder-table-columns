@@ -11,7 +11,6 @@ import psycopg2
 import psycopg2.extras
 
 def find(file, paths):
-
     for path in paths:
         for root, dirs, files in os.walk(path):
             if file in files:
@@ -30,10 +29,18 @@ def get_pg_dump() -> str:
     return exe
 
 
-def get_dump_sql(database: str, schema: str, table: str, user: str) -> str:
+def get_dump_sql(host: str, port: int, database: str, schema: str, table: str, user: str) -> str:
     """Get SQL that would be returned with `pg_dump`"""
     result = subprocess.run(
-        [get_pg_dump(), f"--username={user}", "--schema-only", f"--table={schema}.{table}", database],
+        [
+            get_pg_dump(),
+            f"--host={host}",
+            f"--port={port}",
+            f"--username={user}",
+            "--schema-only",
+            f"--table={schema}.{table}",
+            database
+        ],
         capture_output=True,
         check=True,
         text=True,
@@ -41,13 +48,22 @@ def get_dump_sql(database: str, schema: str, table: str, user: str) -> str:
     return result.stdout
 
 
-def get_columns(database: str, schema: str, table: str, user: str) -> Tuple[List[str], List[str]]:
+def get_columns(
+    host: str,
+    port: int,
+    database: str,
+    schema: str,
+    table: str,
+    user: str
+) -> Tuple[List[str], List[str]]:
     """Get columns for a table"""
-    sql_text = get_dump_sql(database, schema, table, user)
+    sql_text = get_dump_sql(host, port, database, schema, table, user)
     table_re = re.compile(
         fr"(?P<pre>(?:\n|.)+CREATE TABLE {schema}.{table}\s+\(\n)(?P<rows>(?:\n|.)+?)(?P<post>\);(?:\n|.)+)"
     )
     match = table_re.search(sql_text)
+    if match is None:
+        raise RuntimeError(f"Could not find table {schema}.{table}")
     return (
         [
             row.strip().strip(",")
@@ -63,10 +79,18 @@ def get_columns(database: str, schema: str, table: str, user: str) -> Tuple[List
 
 
 def get_migration_sql(
-    database: str, schema: str, table: str, user:str, password: str, columns: List[str], extras: List[str]
+    host: str,
+    port: int,
+    database: str,
+    schema: str,
+    table: str,
+    user:str,
+    password: str,
+    columns: List[str],
+    extras: List[str]
 ) -> str:
     """Get SQL command to migrate a source table into the target table"""
-    sql_text = get_dump_sql(database, schema, table, user)
+    sql_text = get_dump_sql(host, port, database, schema, table, user)
     table_re = re.compile(
         fr"(?P<pre>(?:\n|.)+)(?P<table>CREATE TABLE {schema}\.{table}\s+\(\n(?:\n|.)+?\);)(?P<post>(?:\n|.)+)"
     )
@@ -80,7 +104,7 @@ def get_migration_sql(
             ALTER {nn['column_name']} SET NOT NULL;
         """
             )
-            for nn in get_not_null_columns(database, schema, table, columns, user, password)
+            for nn in get_not_null_columns(host, port, database, schema, table, columns, user, password)
         ]
     )
     fk_disable = "\n".join(
@@ -91,7 +115,7 @@ def get_migration_sql(
             DROP CONSTRAINT {fk['constraint']};
         """
             )
-            for fk in get_foreign_keys(database, schema, table, user, password)
+            for fk in get_foreign_keys(host, port, database, schema, table, user, password)
         ]
     )
     fk_enable = "\n".join(
@@ -103,7 +127,7 @@ def get_migration_sql(
             REFERENCES {fk['schema']}.{fk['foreign_table']} ({fk['foreign_column']});
         """
             )
-            for fk in get_foreign_keys(database, schema, table, user, password)
+            for fk in get_foreign_keys(host, port, database, schema, table, user, password)
         ]
     )
     extra_features = "\n".join(
@@ -117,7 +141,7 @@ def get_migration_sql(
             cleandoc(
                 ix['index_def']
             )
-            for ix in get_indexes(database, schema, table, columns, user, password)
+            for ix in get_indexes(host, port, database, schema, table, columns, user, password)
         ]
     )
 
@@ -160,9 +184,17 @@ ALTER TABLE {schema}.{table}_migration RENAME TO {table};
         """
     )
 
-def get_foreign_keys(database: str, schema: str, table: str, user: str, password: str) -> List[dict]:
+def get_foreign_keys(
+    host: str,
+    port: int,
+    database: str,
+    schema: str,
+    table: str,
+    user: str,
+    password: str
+) -> List[dict]:
     """Get foreign keys referencing a given table"""
-    with psycopg2.connect(database=database, user=user, password=password) as conn:
+    with psycopg2.connect(host=host, port=port, database=database, user=user, password=password) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as curs:
             curs.execute(
                 """
@@ -184,10 +216,19 @@ def get_foreign_keys(database: str, schema: str, table: str, user: str, password
             )
             return [dict(row) for row in curs.fetchall()]
 
-def get_not_null_columns(database: str, schema: str, table: str, columns: List[str], user: str, password: str) -> List[dict]:
+def get_not_null_columns(
+    host: str,
+    port: int,
+    database: str,
+    schema: str,
+    table: str,
+    columns: List[str],
+    user: str,
+    password: str
+) -> List[dict]:
     cols = [row.split()[0] for row in columns]
     """Get foreign keys referencing a given table"""
-    with psycopg2.connect(database=database, user=user, password=password) as conn:
+    with psycopg2.connect(host=host, port=port, database=database, user=user, password=password) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as curs:
             curs.execute(
                 f"""
@@ -203,7 +244,16 @@ def get_not_null_columns(database: str, schema: str, table: str, columns: List[s
             )
             return [dict(row) for row in curs.fetchall()]
 
-def get_indexes(database: str, schema: str, table: str, columns: List[str], user: str, password: str) -> List[dict]:
+def get_indexes(
+    host: str,
+    port: int,
+    database: str,
+    schema: str,
+    table: str,
+    columns: List[str],
+    user: str,
+    password: str
+) -> List[dict]:
     cols = [row.split()[0] for row in columns]
     """Get indeexs for a given table"""
     query = f"""
@@ -273,7 +323,7 @@ WHERE
     AND c.relname = '{table}'
     AND x.indisprimary = FALSE
     """
-    with psycopg2.connect(database=database, user=user, password=password) as conn:
+    with psycopg2.connect(host=host, port=port, database=database, user=user, password=password) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as curs:
             curs.execute(
                 query,
@@ -327,9 +377,11 @@ def printcols(cols: List[str], header: Optional[str] = None) -> None:
         print(f"    {row}")
 
 
-@click.command(context_settings={"help_option_names": ["-h", "--help"]})
+@click.command(context_settings={"help_option_names": ["--help"]})
 @click.option("--exclude", "-e", multiple=True, help="Exclude a column (can be used multiple times).")
-@click.option("--database", "-d", help="The name of the database.")
+@click.option("--host", "-h", default="localhost", help="The hostname of the Postgres server.")
+@click.option("--port", "-p", default="5432", help="The port Postgres is listening on.")
+@click.option("--database", "-d", required=True, help="The name of the database.")
 @click.option("--schema", "-n", default="public", help="The schema of the target table.")
 @click.option("--user", "-u", default="postgres", help="User name.")
 @click.option("--password", "-p", default="", help="Password.")
@@ -340,6 +392,8 @@ def printcols(cols: List[str], header: Optional[str] = None) -> None:
 def main(
     migrate: bool,
     exclude,
+    host: str,
+    port: int,
     database: str,
     schema,
     user: str,
@@ -356,14 +410,14 @@ def main(
     and the last column will be placed at the end of the table. When entered as
     "... col1 col2 col3" all three columns will be placed at the end of the table.
     """
-    cols, extras = get_columns(database, schema, table, user)
+    cols, extras = get_columns(host, port, database, schema, table, user)
 
     if len(columns):
         target_start, target_end = sort_input_columns(list(columns))
         cols = reorder_columns(target_start, target_end, list(exclude), cols)
 
         if migrate:
-            query = get_migration_sql(database, schema, table, user, password, cols, extras)
+            query = get_migration_sql(host, port, database, schema, table, user, password, cols, extras)
 
             if output_file is not None:
                 output_file.write(query)
