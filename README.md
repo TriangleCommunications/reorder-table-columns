@@ -12,6 +12,8 @@ and the last column will be placed at the end of the table. When entered as
 ### Options
 ```
 -e, --exclude TEXT   Exclude a column (can be used multiple times).
+-h, --host TEXT      The hostname of the Postgres server.
+-p, --port TEXT      The port Postgres is listening on.
 -d, --database TEXT  The name of the database.
 -n, --schema TEXT    The schema of the target table.
 -u, --user TEXT      User name.
@@ -47,5 +49,4 @@ To run the sql, you can copy and paste it into a query, pipe it directly into th
 
 ### Notes
 
-Script is designed to run on the same host as the database.  
 Special thanks to JiCiT for [adding windows support and username/password options](https://github.com/TriangleCommunications/reorder-table-columns/pull/3)
