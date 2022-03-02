@@ -377,7 +377,7 @@ def printcols(cols: List[str], header: Optional[str] = None) -> None:
         print(f"    {row}")
 
 
-@click.command(context_settings={"help_option_names": ["--help"]})
+@click.command()
 @click.option("--exclude", "-e", multiple=True, help="Exclude a column (can be used multiple times).")
 @click.option("--host", "-h", default="localhost", help="The hostname of the Postgres server.")
 @click.option("--port", "-p", default="5432", help="The port Postgres is listening on.")
