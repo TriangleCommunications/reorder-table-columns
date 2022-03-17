@@ -382,7 +382,7 @@ def printcols(cols: List[str], header: Optional[str] = None) -> None:
 @click.option("--host", "-h", default="localhost", help="The hostname of the Postgres server.")
 @click.option("--port", "-p", default="5432", help="The port Postgres is listening on.")
 @click.option("--database", "-d", required=True, help="The name of the database.")
-@click.option("--schema", "-n", default="public", help="The schema of the target table.")
+@click.option("--schema", "-s", default="public", help="The schema of the target table.")
 @click.option("--user", "-u", default="postgres", help="User name.")
 @click.option("--password", "-p", default="", help="Password.")
 @click.option("--migrate", "-m", is_flag=True, help="Output full migration sql.")
